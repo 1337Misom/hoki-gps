@@ -18,8 +18,7 @@ async def main():
     gps = QGPS()
 
     await gps.open()
-    await gps.set_engine_lock()
-    await gps.set_op_mode()
+
     await gps.register_events()
     await gps.set_nmea_types()
     await gps.start()

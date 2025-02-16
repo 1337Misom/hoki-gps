@@ -10,7 +10,9 @@ gi.require_version("Qmi", "1.0")
 from gi.repository import GLib, Qrtr, Qmi, Gio
 
 LOG = logging.getLogger("QGPS")
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.DEBUG, format="[%(name)s][%(levelname)s]: %(message)s"
+)
 LOG.setLevel(logging.DEBUG)
 
 
@@ -20,14 +22,8 @@ class QGPS:
     client: Qmi.Client
 
     gps_port: int
-    on_small_id: int
-    on_large_id: int
-
-    sensors: list["QGPS"]
 
     is_open: bool
-
-    send_lock: asyncio.Lock
 
     def __init__(self):
         self.loop = asyncio.get_event_loop()
@@ -40,10 +36,7 @@ class QGPS:
             await asyncio.sleep(0.2)
 
     def _run_once_glib(self, function: Callable, *args):
-        try:
-            function(*args)
-        except Exception as ex:
-            print(ex)
+        function(*args)
         return False
 
     def engine_loc_ready(
@@ -74,22 +67,6 @@ class QGPS:
             Qmi.LocEventRegistrationFlag.POSITION_REPORT
             | Qmi.LocEventRegistrationFlag.GNSS_SATELLITE_INFO
             | Qmi.LocEventRegistrationFlag.NMEA
-            | Qmi.LocEventRegistrationFlag.NI_NOTIFY_VERIFY_REQUEST
-            | Qmi.LocEventRegistrationFlag.INJECT_TIME_REQUEST
-            | Qmi.LocEventRegistrationFlag.INJECT_PREDICTED_ORBITS_REQUEST
-            | Qmi.LocEventRegistrationFlag.INJECT_POSITION_REQUEST
-            | Qmi.LocEventRegistrationFlag.ENGINE_STATE
-            | Qmi.LocEventRegistrationFlag.FIX_SESSION_STATE
-            | Qmi.LocEventRegistrationFlag.WIFI_REQUEST
-            | Qmi.LocEventRegistrationFlag.SENSOR_STREAMING_READY_STATUS
-            | Qmi.LocEventRegistrationFlag.TIME_SYNC_REQUEST
-            | Qmi.LocEventRegistrationFlag.SET_SPI_STREAMING_REPORT
-            | Qmi.LocEventRegistrationFlag.LOCATION_SERVER_CONNECTION_REQUEST
-            | Qmi.LocEventRegistrationFlag.NI_GEOFENCE_NOTIFICATION
-            | Qmi.LocEventRegistrationFlag.GEOFENCE_GENERAL_ALERT
-            | Qmi.LocEventRegistrationFlag.GEOFENCE_BREACH_NOTIFICATION
-            | Qmi.LocEventRegistrationFlag.PEDOMETER_CONTROL
-            | Qmi.LocEventRegistrationFlag.MOTION_DATA_CONTROL
         )
 
         GLib.idle_add(
@@ -160,7 +137,7 @@ class QGPS:
             pass
 
     def on_nmea_resp(self, client: Qmi.Client, nmea: Qmi.IndicationLocNmeaOutput):
-        print(nmea.get_nmea_string(), end="")
+        LOG.info(f"NMEA: {nmea.get_nmea_string()[:-1]}")  # discard newline
 
     def qmi_allocate_client_callback(
         self, device: Qmi.Device, result: Gio.Task, user_data: threading.Event
@@ -202,11 +179,11 @@ class QGPS:
         )
         await self._poll_event(event)
 
-    async def start(self):
+    async def start(self, time_between_positions: int = 500):
         inp = Qmi.MessageLocStartInput.new()
         inp.set_session_id(2)
         inp.set_intermediate_report_state(Qmi.LocIntermediateReportState.ENABLE)
-        inp.set_minimum_interval_between_position_reports(10)
+        inp.set_minimum_interval_between_position_reports(time_between_positions)
         inp.set_fix_recurrence_type(Qmi.LocFixRecurrenceType.PERIODIC_FIXES)
         event = threading.Event()
         GLib.idle_add(
@@ -228,9 +205,6 @@ class QGPS:
             raise RuntimeError("Error while starting location")
         out.get_result()
         event.set()
-
-    def test_callback(self, name, *args):
-        print(name, *args)
 
     def qmi_open_device_callback(
         self, device: Qmi.Device, result: Gio.Task, user_data: threading.Event
