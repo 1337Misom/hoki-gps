@@ -10,10 +10,6 @@ gi.require_version("Qmi", "1.0")
 from gi.repository import GLib, Qrtr, Qmi, Gio
 
 LOG = logging.getLogger("QGPS")
-logging.basicConfig(
-    level=logging.DEBUG, format="[%(name)s][%(levelname)s]: %(message)s"
-)
-LOG.setLevel(logging.DEBUG)
 
 
 class QGPS:
@@ -21,15 +17,22 @@ class QGPS:
     device: Qmi.Device
     client: Qmi.Client
 
+    on_nmea_callback: Callable | None
+    on_satellite_info_callback: Callable | None
+
     gps_port: int
 
     is_open: bool
 
-    def __init__(self):
+    def __init__(
+        self, on_nmea: Callable | None = None, on_satellite_info: Callable | None = None
+    ):
         self.loop = asyncio.get_event_loop()
         self.is_open = False
         self.sensors = []
         self.send_lock = asyncio.Lock()
+        self.on_nmea_callback = on_nmea
+        self.on_satellite_info_callback = on_satellite_info
 
     async def _poll_event(self, event: threading.Event):
         while not event.is_set():
@@ -129,15 +132,20 @@ class QGPS:
         self, client: Qmi.Client, sv_info: Qmi.IndicationLocGnssSvInfoOutput
     ):
         arr = sv_info.get_list()
-        for i in arr:
-            # print("system:", i.system)
-            # print("valid:", i.valid_information)
-            # print("health:", i.health_status)
-            # print("satellite:", i.satellite_status)
-            pass
+        if self.on_satellite_info_callback:
+            asyncio.run_coroutine_threadsafe(
+                self.on_satellite_info_callback(arr),
+                self.loop,
+            )
 
     def on_nmea_resp(self, client: Qmi.Client, nmea: Qmi.IndicationLocNmeaOutput):
-        LOG.info(f"NMEA: {nmea.get_nmea_string()[:-1]}")  # discard newline
+        if self.on_nmea_callback:
+            asyncio.run_coroutine_threadsafe(
+                self.on_nmea_callback(nmea.get_nmea_string()),
+                self.loop,
+            )
+        else:
+            LOG.debug(f"NMEA: {nmea.get_nmea_string()[:-1]}")  # discard newline
 
     def qmi_allocate_client_callback(
         self, device: Qmi.Device, result: Gio.Task, user_data: threading.Event
