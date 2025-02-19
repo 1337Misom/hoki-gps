@@ -147,6 +147,25 @@ class QGPS:
         else:
             LOG.debug(f"NMEA: {nmea.get_nmea_string()[:-1]}")  # discard newline
 
+    def on_position_report(
+        self, client: Qmi.Client, report: Qmi.IndicationLocPositionReportOutput
+    ):
+        try:
+            vertical_reliability = report.get_vertical_uncertainty()
+            horizontal_reliability = report.get_horizontal_uncertainty_circular()
+            sats_used = report.get_satellites_used()
+            LOG.debug(
+                f"Horizontal/Vertical accuracy (sats: {len(sats_used)}): {horizontal_reliability}m/{vertical_reliability}m"
+            )
+
+            lat = report.get_latitude()
+            lon = report.get_longitude()
+            altitude = report.get_altitude_from_sealevel()
+            LOG.debug(f"Lat/Lon/altitude: {lat}/{lon}/{altitude:.2f}m")
+        except:
+            # Happens when there is no position available
+            pass
+
     def qmi_allocate_client_callback(
         self, device: Qmi.Device, result: Gio.Task, user_data: threading.Event
     ):
@@ -155,6 +174,7 @@ class QGPS:
 
         self.client.connect("nmea", self.on_nmea_resp)
         self.client.connect("gnss-sv-info", self.on_gnss_sv_info)
+        self.client.connect("position-report", self.on_position_report)
 
         user_data.set()
 
